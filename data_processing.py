@@ -4,7 +4,7 @@ import numpy as np
 import yaml
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-
+from collections import Counter
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -18,7 +18,7 @@ def load_labels(yaml_path):
 # Extract Image Paths and Labels
 def parse_annotations(data, base_path):
     # Specify the labels to keep
-    selected_labels = {'Red', 'Green', 'Yellow'}
+    selected_labels = {'Red', 'Green', 'Yellow', 'off'}
     images = []
     labels = []
 
@@ -94,14 +94,10 @@ def save_samples(image_paths, labels, output_dir, num_samples=10, size=(64, 64))
     # Create output directory if it does not exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
-        logging.info(f"Processing image: {img_path}")
-    # Process the specified number of samples
+
     for i, (img_path, x_min, y_min, x_max, y_max) in enumerate(image_paths[:num_samples]):
         logging.info(f"Processing image: {img_path}")
-        # Print the base path for debugging
-        print(f"Processing image: {img_path}")
 
-        # Load the image
         img = cv2.imread(img_path)
         if img is None:
             logging.error(f"Error loading image: {img_path}")
@@ -120,6 +116,14 @@ def save_samples(image_paths, labels, output_dir, num_samples=10, size=(64, 64))
         output_path = os.path.join(output_dir, f"{name}_{label}{ext}")
         cv2.imwrite(output_path, resized_img * 255)  # Convert back to 0–255 scale for saving
         logging.info(f"Saved sample: {output_path}")
+
+
+# Function to calculate dataset statistics
+def get_dataset_statistics(labels):
+    label_counts = Counter(labels)
+    logging.info("Dataset Statistics:")
+    for label, count in label_counts.items():
+        logging.info(f"{label}: {count} samples")
 
 
 # Main Function
@@ -143,13 +147,16 @@ def main():
     y_encoded = encoder.fit_transform(y)
 
     logging.info('Splitting dataset...')
-    X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded)
 
     logging.info(f'Train data shape: {X_train.shape}, Test data shape: {X_test.shape}')
     logging.info(f'Classes: {encoder.classes_}')
 
     save_samples(image_paths[:10], labels[:10], output_dir='samples/', num_samples=10)
 
+
+    # get statistics
+    get_dataset_statistics(labels)
 
     # Save Preprocessed Data
     np.save('X_train.npy', X_train)
