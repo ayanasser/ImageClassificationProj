@@ -28,7 +28,7 @@ def load_yaml(yaml_path):
     with open(yaml_path, 'r') as file:
         return yaml.safe_load(file)
 
-def validate_bbox(bbox, img_shape):
+def validate_bbox(bbox, img_shape): # check if bounding box is within image bounds, clean annotations
     x_min, y_min, x_max, y_max = bbox
     if x_min < 0 or y_min < 0 or x_max > img_shape[1] or y_max > img_shape[0]:
         raise ValueError("Bounding box out of image bounds.")
@@ -141,6 +141,7 @@ def check_feature_range(features, feature_name):
     print(f"  Mean: {np.mean(features)}")
     print(f"  Std Dev: {np.std(features)}")
     print("-" * 40)
+
 
 
 def main():
