@@ -1,0 +1,9 @@
+tensorflow
+numpy
+scikit-learn
+mlflow
+matplotlib
+opencv-python
+PyYAML
+scikit-image
+imbalanced-learn
