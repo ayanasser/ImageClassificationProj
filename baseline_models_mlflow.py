@@ -22,6 +22,13 @@ from sklearn.ensemble import RandomForestClassifier
 import mlflow
 import mlflow.sklearn
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
+from mlp import TrafficSignClassifier
+
 def plot_confusion_matrix(y_test, predictions, labels, model_name, output_dir):
     cm = confusion_matrix(y_test, predictions)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
@@ -124,6 +131,83 @@ def train_model_with_mlflow(model, model_name, X_train, y_train, X_test, y_test,
         print("Accuracy:", accuracy)
         print(classification_report(y_test, predictions, target_names=labels))
 
+def train_mlp_with_mlflow(model, model_name, X_train, y_train, X_test, y_test, output_dir, labels, training_technique):
+    mlflow.end_run()
+    X_train = torch.tensor(X_train, dtype=torch.float32)
+    y_train = torch.tensor(y_train, dtype=torch.long)
+    X_test = torch.tensor(X_test, dtype=torch.float32)
+    y_test = torch.tensor(y_test, dtype=torch.long)
+
+    train_dataset = TensorDataset(X_train, y_train)
+    test_dataset = TensorDataset(X_test, y_test)
+    train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=256, shuffle=False)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    best_valid_loss = float('inf')
+
+    with mlflow.start_run(run_name=model_name):
+        mlflow.pytorch.autolog()
+        mlflow.log_param("training_technique", training_technique)
+
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            model.train()
+            for X_batch, y_batch in train_loader:
+                optimizer.zero_grad()
+                outputs = model(X_batch)
+                loss = criterion(outputs, y_batch)
+                loss.backward()
+                optimizer.step()
+
+            model.eval()
+            total_valid_loss = 0
+            with torch.no_grad():
+                for X_batch, y_batch in test_loader:
+                    outputs = model(X_batch)
+                    valid_loss = criterion(outputs, y_batch)
+                    total_valid_loss += valid_loss.item()
+
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {total_valid_loss:.4f}')
+
+            if total_valid_loss < best_valid_loss:
+                best_valid_loss = total_valid_loss
+                torch.save(model.state_dict(), 'mlp_best_model.pth')
+        
+        # load the best model
+        model.load_state_dict(torch.load('mlp_best_model.pth'))
+        model.eval()
+        all_predictions = []
+        all_labels = []
+        all_probabilities = []
+        with torch.no_grad():
+            for X_batch, y_batch in test_loader:
+                outputs = model(X_batch)
+                _, predicted = torch.max(outputs.data, 1)
+                probabilities = torch.softmax(outputs, dim=1)
+                y_prob = probabilities.cpu().numpy()
+                all_probabilities.extend(y_prob)
+                all_predictions.extend(predicted.cpu().numpy())
+                all_labels.extend(y_batch.cpu().numpy())
+
+        accuracy = accuracy_score(all_labels, all_predictions)
+        f1 = f1_score(all_labels, all_predictions, average='weighted')
+        precision = precision_score(all_labels, all_predictions, average='weighted')
+        recall = recall_score(all_labels, all_predictions, average='weighted')
+
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("f1_score", f1)
+        mlflow.log_metric("precision", precision)
+        mlflow.log_metric("recall", recall)
+
+        log_classification_report(all_labels, all_predictions, labels)
+
+        all_probabilities = np.array(all_probabilities)
+        plot_roc_curve(all_labels, all_probabilities, model_name, output_dir)
+
+        plot_confusion_matrix(all_labels, all_predictions, labels, model_name, output_dir)
+
 def main():
     mlflow.set_tracking_uri("http://127.0.0.1:5000")
     mlflow.set_experiment("Traffic Light Classifier")
@@ -180,7 +264,8 @@ def main():
     random_forest_model = RandomForestClassifier(n_estimators=100, random_state=42)
     train_model_with_mlflow(random_forest_model, f"Random Forest {training_technique}", X_train, y_train, X_test, y_test, output_dir, labels, training_technique)
 
-
+    mlp_model = TrafficSignClassifier()
+    train_model_with_mlflow(mlp_model, 'TrafficSignClassifier', X_train, y_train, X_test, y_test, output_dir, labels, 'PyTorch')
 
 if __name__ == "__main__":
     main()
